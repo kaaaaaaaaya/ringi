@@ -21,6 +21,7 @@ import { z } from "zod";
 import { adjudicate } from "../lib/adjudicate";
 import { getPool } from "../lib/db";
 import { writeReceipt } from "../lib/receipt";
+import { receiptReasonFrom } from "../lib/receipt-reason";
 import type { ToolCall } from "../lib/charter";
 
 type ToolResult = {
@@ -39,7 +40,7 @@ async function guard(toolCall: ToolCall, execute: () => string): Promise<ToolRes
     const r = await writeReceipt(getPool(), {
       action: j.action,
       rule_id: "LLM_JUDGE",
-      reason: j.reason,
+      reason: receiptReasonFrom(j),
     });
     receiptHash = r.hash.slice(0, 12);
   } catch {

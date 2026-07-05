@@ -11,6 +11,7 @@
     "demo:record": "PACE=1 tsx src/demo/sales-agent-demo.ts",
     "mcp": "tsx src/mcp/gateway.ts",
     "mcp:smoke": "tsx src/mcp/smoke.ts",
+    "ingest": "tsx src/ingest/notion-to-charter.ts",
     "db:up": "docker compose up -d",
     "db:migrate": "docker compose exec -T postgres psql -U ringi -d ringi -f /dev/stdin < db/schema.sql",
     "db:down": "docker compose down"

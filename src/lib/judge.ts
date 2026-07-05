@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ToolCall } from "./charter";
+import { JUDGE_MODEL } from "./model";
 
 /**
  * v1 judgment: the LLM judge. Given a natural-language Charter and a tool
@@ -61,7 +62,7 @@ async function judgeWithClaude(
     JSON.stringify(toolCall)
   );
   const message = await client.messages.create({
-    model: "claude-sonnet-4-5",
+    model: JUDGE_MODEL,
     max_tokens: 512,
     temperature: 0,
     messages: [{ role: "user", content: prompt }],
