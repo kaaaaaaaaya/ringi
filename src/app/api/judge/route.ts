@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 import { writeReceipt } from "@/lib/receipt";
+import { receiptReasonFrom } from "@/lib/receipt-reason";
 import { adjudicate } from "@/lib/adjudicate";
 import type { ToolCall } from "@/lib/charter";
 
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
   const receipt = await writeReceipt(getPool(), {
     action: j.action,
     rule_id: "LLM_JUDGE",
-    reason: j.reason,
+    reason: receiptReasonFrom(j),
   });
 
   if (j.action === "BLOCK") {
