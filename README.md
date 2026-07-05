@@ -70,6 +70,19 @@ http://localhost:3000
 
 The console lists Receipts written by `/api/judge` or by MCP tool calls.
 
+## Hosted Deployment
+
+The current Sites deployment is available at:
+
+```text
+https://ringi-audit-console.isdl-28th-5429.chatgpt-team.site
+```
+
+This deployment is private. Unauthenticated requests return `401`.
+
+The hosted app still needs a runtime `DATABASE_URL` before the Audit Console and
+`POST /api/judge` can persist Receipts in production.
+
 ## Use the HTTP API
 
 Start the dev server, then call the judgment endpoint:
@@ -155,13 +168,14 @@ so the demo runs without external credentials.
 ## Development Commands
 
 ```bash
-npm run dev        # Start the Next.js app
-npm run build      # Build the Next.js app
-npm run start      # Start the built app
-npm run test       # Run Vitest tests
-npm run mcp        # Start the stdio MCP gateway
-npm run mcp:smoke  # Run the MCP smoke test
-npm run db:up      # Start local Postgres
-npm run db:migrate # Apply db/schema.sql
-npm run db:down    # Stop local Postgres
+npm run dev          # Start the Next.js app
+npm run build        # Build the Next.js app
+npm run build:worker # Build the Cloudflare Worker bundle
+npm run start        # Start the built app
+npm run test         # Run Vitest tests
+npm run mcp          # Start the stdio MCP gateway
+npm run mcp:smoke    # Run the MCP smoke test
+npm run db:up        # Start local Postgres
+npm run db:migrate   # Apply db/schema.sql
+npm run db:down      # Stop local Postgres
 ```
