@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "ringi": {
+      "command": "/Users/kaya/Documents/ringi/bin/ringi-mcp.sh"
+    }
+  }
+}
