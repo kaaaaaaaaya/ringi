@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ringi
+      POSTGRES_PASSWORD: ringi
+      POSTGRES_DB: ringi
+    ports:
+      # Override with a different host port if 5432 is already in use locally,
+      # e.g. "5433:5432" — then set DATABASE_URL to match.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ringi_pgdata:/var/lib/postgresql/data
+
+volumes:
+  ringi_pgdata:
