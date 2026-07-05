@@ -18,10 +18,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { judge } from "../lib/judge";
+import { adjudicate } from "../lib/adjudicate";
 import { getPool } from "../lib/db";
 import { writeReceipt } from "../lib/receipt";
-import { DEMO_CHARTER_MD } from "../lib/demo-charter-md";
 import type { ToolCall } from "../lib/charter";
 
 type ToolResult = {
@@ -31,7 +30,7 @@ type ToolResult = {
 
 /** Run one tool call through the judge, forward to `execute` only on APPROVE. */
 async function guard(toolCall: ToolCall, execute: () => string): Promise<ToolResult> {
-  const j = await judge(toolCall, DEMO_CHARTER_MD);
+  const j = await adjudicate(toolCall);
 
   // Audit trail: write a Receipt for both verdicts. Best-effort so the gateway
   // still judges when no DB is up.

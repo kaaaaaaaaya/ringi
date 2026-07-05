@@ -1,0 +1,5 @@
+[
+  { "email": "lead@acme.com", "name": "A. Lead", "opted_out": true },
+  { "email": "warm@beta.com", "name": "W. Prospect", "opted_out": false },
+  { "email": "cfo@gamma.io", "name": "G. CFO", "opted_out": true }
+]
