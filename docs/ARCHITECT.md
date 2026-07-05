@@ -1,42 +1,42 @@
-# Ringi アーキテクチャ
+# Ringi Architecture
 
-このドキュメントはRingiの技術アーキテクチャを、**現在実装済みの部分**と**設計のみ確定した将来部分**に分けて記録する。実装の詳細な経緯・前提・レビュー記録は docs/office-hours/ を参照。UI/デザインの決定は DESIGN.md を参照。
+This document describes Ringi's technical architecture.
 
 ---
 
-## 1. 全体像
+## 1. Overview
 
-[AI Agent 実行]
+[AI Agent execution]
       │
       ▼
 ┌─────────────────────────────────────────────┐
-│  Ringi（私たちのインフラ）                     │
+│  Ringi (our infrastructure)                   │
 │                                               │
-│  ① Charter評価（実装済み）                     │
-│     tool-call + Charter(ルール) → Verdict     │
+│  ① Charter evaluation                         │
+│     tool-call + Charter(rules) → Verdict      │
 │                                               │
-│  ② Charter準備（設計のみ、未実装）              │
-│     Notion / ダッシュボード → MD/CSV → Charter │
+│  ② Charter preparation                        │
+│     Notion / dashboards → MD/CSV → Charter    │
 └─────────────────────────────────────────────┘
       │
       ▼ output = Verdict + Receipt
-[Agent が受け取る]
+[Agent receives it]
 
 ---
 
-## 2. 実装済み: Verdict API（判定コア）
+## 2. Implemented: Verdict API (the judgment core)
 
-### コンポーネント
+### Components
 
-| コンポーネント | ファイル | 役割 |
+| Component | File | Role |
 |---|---|---|
-| Charter評価 | src/lib/charter.ts | tool-call を Charter ルール群と照合し、APPROVE/BLOCK を決定論的に判定する（LLM不使用） |
-| Verdict API | src/lib/verdict-api.ts | Charter評価を実行し、失敗時はfail-closed（BLOCK）、Receiptを生成して返す |
-| Receipt | src/lib/receipt.ts | 自己完結型の判定証跡。Agentへは直接返却、DBにも別途保存する（後述） |
-| Agent hook | src/lib/mcp-hook.ts | 任意のツール実行関数をラップし、実行前にVerdictを取得する |
-| HTTPエンドポイント | src/app/api/verdict/route.ts | POST /api/verdict |
+| Charter evaluation | src/lib/charter.ts | Matches a tool-call against the Charter rule set and decides APPROVE/BLOCK deterministically (no LLM used) |
+| Verdict API | src/lib/verdict-api.ts | Runs Charter evaluation, fails closed (BLOCK) on error, generates a Receipt, and returns it |
+| Receipt | src/lib/receipt.ts | A self-contained judgment record. Returned directly to the Agent, and also stored in the DB (see below) |
+| Agent hook | src/lib/mcp-hook.ts | Wraps an arbitrary tool-execution function and obtains a Verdict before it runs |
+| HTTP endpoint | src/app/api/verdict/route.ts | POST /api/verdict |
 
-### データフロー
+### Data flow
 
 POST /api/verdict { tool_name, params }
         │
@@ -45,11 +45,8 @@ evaluateCharter(toolCall, rules)
         │
    ┌────┴────┐
    ▼         ▼
- 不一致        一致
-APPROVE(デフォルト)   BLOCK
-（どのルールにも   （配列順で最初に一致した
- 一致しない）      ルールのactionに従う。
-                 BLOCKともAPPROVEともなり得る）
+ no match     match
+ (Block)     (Approve)
    │         │
    └────┬────┘
         ▼
@@ -57,36 +54,36 @@ createReceipt(verdict)
         │
         ├─────────────────────────────┐
         ▼                             ▼
-{ verdict, receipt,             DBへ保存（非同期・fire-and-forget）
+{ verdict, receipt,             Save to DB (async, fire-and-forget)
   receipt_markdown, latency_ms }      │
         │                             ▼
-        ▼                       人間が後から一覧・監査
-[Agent が直接受け取る]           （ノウハウとして蓄積）
-（DBを経由しない）
+        ▼                       Humans review / audit later
+[Agent receives directly]        (accumulated as know-how)
+(does not go through the DB)
 
-### 設計判断: ReceiptはDBにも保存する（Agentへの応答はDBを経由しない）
+### Design decision: the Receipt is also stored in the DB (the response to the Agent does not go through the DB)
 
-**決定:** Receiptは使い捨てではなく、Postgresにも保存する。ただし POST /api/verdict のレスポンスとしてAgentに返す経路はDB書き込みを経由しない直接返却で、DB保存は付随的な書き込み。
+**Decision:** The Receipt is not disposable — it is also persisted to Postgres. However, the path that returns it to the Agent as the response to POST /api/verdict is a direct return that does not go through the DB write; the DB save is an incidental write.
 
-**理由:** 当初「Receiptはagentに渡すだけで使い捨てでよい」という方針でDB依存を排除したが、「人間が見返せる」「ノウハウとして蓄積される」という価値の方が優先されると判断し直した。Agent側のレスポンス経路にDBを挟まないのは、DB書き込みの遅延・障害がAgentへのVerdict返却をブロックしないようにするため（可用性はここで確保する）。
+**Rationale:** We originally took the stance that "the Receipt only needs to be handed to the agent and can be disposable," and eliminated the DB dependency. But we reconsidered and judged that the value of "humans can review it later" and "it accumulates as know-how" takes priority. We keep the DB out of the Agent's response path so that latency or failures in the DB write do not block the Verdict return to the Agent (this is where availability is secured).
 
-- Agentへの応答: createReceipt(verdict) → 直接レスポンス（DB未経由、これまで通り低レイテンシ）
-- 人間向けの蓄積: 同じReceiptをDBにも書き込む（非同期。書き込み失敗してもAgentへの応答には影響しない）
-- 失うものはなくなった: 「過去の判定ログを後から一覧・監査する」機能（Audit Console的な使い方）が復活する
-- ハッシュチェーン（過去のReceiptとの連鎖による改竄検知）を採用するかは別問題（本ドキュメントでは未決定。単体hashのみで運用するか、チェーンに戻すかは今後の議論）
+- Response to the Agent: createReceipt(verdict) → direct response (does not go through the DB, low latency as before)
+- Accumulation for humans: the same Receipt is also written to the DB (async; a failed write does not affect the response to the Agent)
+- Nothing is lost anymore: the ability to "list and audit past judgment logs later" (the Audit-Console-style use) comes back
+- Whether to adopt a hash chain (tamper detection via chaining against past Receipts) is a separate question (undecided in this document — whether to run with a single hash only or return to a chain is a future discussion)
 
-**Receiptのフィールド構成（確定）:**
+**Receipt field composition (confirmed):**
 
-| フィールド | 必要か | 理由 |
+| Field | Needed? | Rationale |
 |---|---|---|
-| ts | 必要 | いつ判定されたか |
-| rule_id | 必要 | どのルールが適用されたか |
-| action | 必要 | APPROVE / BLOCK |
-| reason | 必要 | agentが次の行動を決める材料 |
-| hash | 必要 | 自己改竄検知の最低限の裏付け（チェーンはないが、Receipt単体の改竄は検知できる） |
-| `id`（UUID） | **要再検討** | 「使い捨て」前提では不要だったが、DB保存する以上は人間が個々のReceiptを参照するためのキーが必要になる可能性がある（DBの自動採番PKで代替できるなら引き続き不要） |
+| ts | Needed | When the judgment was made |
+| rule_id | Needed | Which rule was applied |
+| action | Needed | APPROVE / BLOCK |
+| reason | Needed | Material for the agent to decide its next action |
+| hash | Needed | The minimum backing for self-tamper detection (no chain, but tampering with a single Receipt can be detected) |
+| `id` (UUID) | **Reconsider** | Unnecessary under the "disposable" premise, but once stored in the DB there may be a need for a key so humans can reference individual Receipts (still unnecessary if the DB's auto-increment PK can substitute) |
 
-**返却形式（確定）:** JSON主体 + Markdown併記。
+**Return format (confirmed):** JSON as the primary form + Markdown alongside.
 
 json
 {
@@ -96,107 +93,107 @@ json
   "latency_ms": 4.2
 }
 
-理由: 呼び出し元コード（`interceptToolCall`等）はJSONのフィールドで`action === "BLOCK"`を分岐する必要があるため、JSONが主。同時に、agent自身がこの判定結果を自分のコンテキスト（ログ・会話履歴）に渡す場合はMarkdownの方が自然文として読みやすいため、両方を返す。
+Rationale: the calling code (`interceptToolCall`, etc.) needs to branch on `action === "BLOCK"` from the JSON field, so JSON is primary. At the same time, when the agent itself passes this judgment result into its own context (log / conversation history), Markdown reads more naturally as prose — so we return both.
 
 ---
 
-## 3. 設計のみ確定（未実装）: Charter準備パイプライン
+## 3. Design confirmed only (not implemented): Charter preparation pipeline
 
-ユーザーの手書き図（2026-07-05）をもとに整理。**実装はせず、設計として記録する。**
+Organized based on the user's hand-drawn diagram (2026-07-05). **Not implemented; recorded as design.**
 
-### パイプライン概要
+### Pipeline overview
 
-① Discovery（全探索）
-   Notion / ダッシュボードAPIに接続し、全ページ・全データソースを列挙する
+① Discovery (full crawl)
+   Connect to the Notion / dashboard APIs and enumerate all pages and all data sources
 
-② Extract（構造化）
-   各ページ・各データソースを個別にAIフレンドリーな中間形式に変換する
-     - Notionページ → Markdown（1ページ = 1MDファイル）
-     - ダッシュボードAPI → JSON → CSV
+② Extract (structuring)
+   Convert each page and each data source individually into an AI-friendly intermediate format
+     - Notion page → Markdown (1 page = 1 MD file)
+     - Dashboard API → JSON → CSV
 
-③ Consolidate（統合）
-   複数ページ・複数データソースの中間形式を1つにまとめる
+③ Consolidate
+   Merge the intermediate formats of multiple pages and multiple data sources into one
 
-④ MD化（最終出力）
-   統合結果をCharter評価に使えるMarkdownにする
+④ MD conversion (final output)
+   Turn the consolidated result into Markdown usable for Charter evaluation
 
-### Notion抽出MDフォーマット（確定）
+### Notion extraction MD format (confirmed)
 
-1ページ = 1MDファイル。
+1 page = 1 MD file.
 
 markdown
 ---
 source: notion
 document_id: <notion-page-id>
-document_title: <ページタイトル>
+document_title: <page title>
 extracted_at: <ISO8601>
 ---
 
-# <ページタイトル>
+# <page title>
 
 ## Facts
 
-- <構造化された事実/ルール1>（出典: "<元の一文をそのまま引用>"）
-- <構造化された事実/ルール2>（出典: "<元の一文をそのまま引用>"）
+- <structured fact/rule 1> (source: "<the original sentence quoted verbatim>")
+- <structured fact/rule 2> (source: "<the original sentence quoted verbatim>")
 
-**含める（絶対に必要）:**
-- frontmatterでの出典情報（`document_id` / document_title / `extracted_at`）— 誤抽出を元の文章まで追跡できるようにするため
-- 各Factに元の一文を引用として添える（トレーサビリティ）
+**Include (absolutely required):**
+- Source info in the frontmatter (`document_id` / document_title / `extracted_at`) — so a mis-extraction can be traced back to the original text
+- Attach the original sentence as a quote to each Fact (traceability)
 
-**含めない（agentには無駄と判断）:**
-- Notionの装飾（絵文字コールアウト、色付けなど）
-- 目次・パンくずなどのナビゲーション要素（agentは画面遷移しないので不要）
-- ページ全文の逐語コピー（トークンの無駄。構造化されたFactsだけで十分）
+**Do not include (judged useless to the agent):**
+- Notion decorations (emoji callouts, coloring, etc.)
+- Navigation elements such as table of contents and breadcrumbs (the agent doesn't navigate screens, so they're unnecessary)
+- A verbatim copy of the full page text (a waste of tokens; the structured Facts alone are sufficient)
 
-### ダッシュボード抽出CSVフォーマット（確定）
+### Dashboard extraction CSV format (confirmed)
 
 csv
 metric_name,value,unit,as_of_date
 quarterly_spend_usd,482000,USD,2026-07-01
 
-理由: 数値主体のデータはJSONよりCSVの方がLLMのトークン効率が良く、そのままテーブルとして読める。
+Rationale: for numeric-heavy data, CSV is more token-efficient for the LLM than JSON, and it reads directly as a table.
 
-### この先の判定への接続（未確定）
+### Connection to downstream judgment (undecided)
 
-Consolidate後のMDが、実装済みのCharter評価（`evaluateCharter`）にどう接続されるかは未設計。候補:
-- MDをLLMに渡してCharter JSON（`rule_id` / condition / action / `reason_template`）に変換する（旧設計にあった`charter-extraction.ts`に近い）
-- MDをそのままLLMのコンテキストに含め、tool-callと合わせて都度LLMに判定させる（決定論的評価からLLM評価への転換になるため、要議論）
+How the MD after Consolidate connects to the implemented Charter evaluation (`evaluateCharter`) is not yet designed. Candidates:
+- Pass the MD to an LLM and convert it into Charter JSON (`rule_id` / condition / action / `reason_template`) — close to the `charter-extraction.ts` in the old design
+- Include the MD directly in the LLM's context and have the LLM judge each time together with the tool-call (this shifts from deterministic evaluation to LLM evaluation, so it requires discussion)
 
 ---
 
-## 4. 拡張: APPROVE Receiptの企業向け詳細フィールド（設計のみ）
+## 4. Extension: enterprise-facing detailed fields for APPROVE Receipts (design only)
 
-営業担当者・企業（バイヤー）視点で「1枚のAPPROVE Receiptだけで説明責任を果たせる」ことを目標に、答えるべき7つの問いを定義する。**現行実装（`src/lib/receipt.ts`）は最小フィールドセット（`ts`/`rule_id`/`action`/`reason`/`hash`）のままで、ここは企業向けビューのための拡張レイヤーとして設計する。**
+From the perspective of the sales rep and the enterprise (buyer), with the goal that "a single APPROVE Receipt alone can fulfill accountability," we define the seven questions that must be answered. **The current implementation (`src/lib/receipt.ts`) stays with the minimal field set (`ts`/`rule_id`/`action`/`reason`/`hash`); this is designed as an extension layer for the enterprise-facing view.**
 
-| 問い | フィールド | 表示例 |
+| Question | Field | Display example |
 |---|---|---|
-| 何が承認されたか | action_detail | MeetCoach AI 年間契約 $7,400 |
-| 誰の代理で | agent_id + requester_id | procurement-agent-03 / 依頼者: T. Sato |
-| いつ | timestamp | 2026-07-05 14:02:11 JST |
-| どのルールで通ったか | rule_id + charter_excerpt_ref | pilot.vendor_cap.v2（上限 $10,000 以内） |
-| どの判断基準の版か | charter_version | v2.0 |
-| 予算への影響 | budget_snapshot | パイロット予算 $75,000 中 9.9% 使用 |
-| この承認はいつまで有効か | expires_at + scope | 15分以内・本発注のみ有効 |
+| What was approved | action_detail | MeetCoach AI annual contract $7,400 |
+| On whose behalf | agent_id + requester_id | procurement-agent-03 / requester: T. Sato |
+| When | timestamp | 2026-07-05 14:02:11 JST |
+| Under which rule it passed | rule_id + charter_excerpt_ref | pilot.vendor_cap.v2 (within the $10,000 cap) |
+| Which version of the criteria | charter_version | v2.0 |
+| Impact on budget | budget_snapshot | 9.9% used of the $75,000 pilot budget |
+| Until when this approval is valid | expires_at + scope | Valid within 15 minutes, for this order only |
 
-**現行の最小Receiptとの関係（未決事項）:**
-- timestamp は現行の ts と同一。`rule_id` も現行フィールドと同一（`charter_excerpt_ref` を新たに紐付ける）
-- action_detail / agent_id / requester_id / charter_version / budget_snapshot / expires_at / scope は現行の `Verdict`/`Receipt` 型には存在しない。追加するには ToolCall に依頼者情報を持たせる、Charterにバージョン管理を導入する、予算残高を参照する外部データソースが必要——など、Verdict API単体では完結しない依存が生じる
-- expires_at / `scope`（この承認は何に対して・いつまで有効か）は、現行の「1回のtool-callに対する1回のVerdict」というステートレスな判定モデルに新しい概念（承認の有効期間・適用範囲）を持ち込む。これは今のCharter評価ロジック（`evaluateCharter`）が扱っていない領域で、設計の拡張が必要
+**Relationship to the current minimal Receipt (open items):**
+- timestamp is the same as the current ts. `rule_id` is also the same as the current field (with `charter_excerpt_ref` newly linked)
+- action_detail / agent_id / requester_id / charter_version / budget_snapshot / expires_at / scope do not exist in the current `Verdict`/`Receipt` types. Adding them requires giving the ToolCall requester info, introducing version management to the Charter, an external data source to reference the remaining budget, and so on — dependencies that cannot be completed within the Verdict API alone
+- expires_at / `scope` (what this approval applies to and until when it is valid) introduce a new concept (validity period / scope of application of an approval) into the current stateless judgment model of "one Verdict per one tool-call." This is a domain the current Charter evaluation logic (`evaluateCharter`) does not handle, and it requires a design extension
 
-### BLOCK版: Agentへの応答とDB保存の非対称性
+### BLOCK version: the asymmetry between the response to the Agent and the DB save
 
-**決定:** BLOCKの場合、Agentへの応答は最小限（`action: BLOCK` + 止めるべき理由のみ）。一方、DBには（APPROVEと同様に）詳細を保存する。**Agentへの応答の軽さと、DBに残す監査情報の厚みは別軸**という設計。
+**Decision:** For a BLOCK, the response to the Agent is minimal (`action: BLOCK` + only the reason it should be stopped). Meanwhile, the details are saved to the DB (just as with APPROVE). **The lightness of the response to the Agent and the richness of the audit information left in the DB are separate axes** — that is the design.
 
-- **Agentへの応答（変更なし）:** { action: "BLOCK", reason: "..." } — Agentはこれだけ受け取ってツールの実行を止めればよい。詳細を読み解いて何か判断する必要はない
-- **DBへの保存（新規）:** 何がブロックされたか、誰の代理で、いつ、どのルールでブロックされたかを、人間が後から監査できるように残す。`expires_at` / `scope`（承認の有効期間・適用範囲）はAPPROVE特有の概念なのでBLOCK版には含めない
+- **Response to the Agent (unchanged):** { action: "BLOCK", reason: "..." } — the Agent just needs to receive this and stop executing the tool. It does not need to parse the details and make any judgment
+- **Save to the DB (new):** leave behind what was blocked, on whose behalf, when, and under which rule it was blocked, so humans can audit it later. `expires_at` / `scope` (validity period / scope of an approval) are APPROVE-specific concepts, so they are not included in the BLOCK version
 
-| 問い | フィールド | 表示例（BLOCK） |
+| Question | Field | Display example (BLOCK) |
 |---|---|---|
-| 何がブロックされたか | action_detail | MeetCoach AI 年間契約 $12,000（申請） |
-| 誰の代理で | agent_id + requester_id | procurement-agent-03 / 依頼者: T. Sato |
-| いつ | timestamp | 2026-07-05 14:02:11 JST |
-| どのルールでブロックされたか | rule_id + charter_excerpt_ref | pilot.vendor_cap.v2（上限 $10,000 超過） |
-| どの判断基準の版か | charter_version | v2.0 |
-| 予算への影響 | budget_snapshot | パイロット予算 $75,000 中 9.9% 使用（本件は未消化） |
+| What was blocked | action_detail | MeetCoach AI annual contract $12,000 (requested) |
+| On whose behalf | agent_id + requester_id | procurement-agent-03 / requester: T. Sato |
+| When | timestamp | 2026-07-05 14:02:11 JST |
+| Under which rule it was blocked | rule_id + charter_excerpt_ref | pilot.vendor_cap.v2 (exceeds the $10,000 cap) |
+| Which version of the criteria | charter_version | v2.0 |
+| Impact on budget | budget_snapshot | 9.9% used of the $75,000 pilot budget (this item not consumed) |
 
-- これらの詳細フィールドは全Receiptに必須ではなく、**APPROVE/BLOCKいずれもDB保存時には企業の承認者・監査者が読む場面**を想定した拡張と位置づける。Agentが直接受け取る応答の中身とは別物
+- These detailed fields are not required on every Receipt; they are positioned as an extension intended for **the scenario where an enterprise's approver / auditor reads them at DB-save time, for both APPROVE and BLOCK**. This is separate from the content of the response the Agent receives directly

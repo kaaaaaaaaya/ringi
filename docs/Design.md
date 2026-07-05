@@ -1,65 +1,69 @@
-# Ringi — チーム共有MVPドキュメント ver1
+# Ringi — Team-Shared MVP Document ver1
 
-## 1\. プロダクト定義（1分で新メンバーに説明する版）
+## 1. Product Definition (the version you'd use to explain it to a new member in one minute)
 
-**Ringi \= AIビジネスエージェントのための意思決定API（＋そのプロトコル）。**
+**Ringi = the decision-making API (and its protocol) for AI business agents.**
 
-エージェントを実行すると、Ringiのインフラがプロキシ（通信の仲介役）やイベントリスナーとして勝手に通信をハックし、自動的に並列処理を走らせて裁定（Verdict）を下する。さらに、全判断が改竄不能なreceiptとして残る。
+When an agent runs, Ringi's infrastructure hooks into the communication on its own — acting as a proxy (a middleman for the traffic) or an event listener — automatically runs parallel processing, and renders a Verdict. On top of that, every judgment is left behind as a tamper-proof receipt.
 
-他社製エージェントが、企業の既存システム（Salesforce、Slack、調達SaaSなど）に対してアクションを起こしたその瞬間、Ringiのインフラがプロキシ（通信の仲介役）やイベントリスナーとして勝手に通信をハックし、自動的に並列処理を走らせて裁定（Verdict）を下する。
+The moment a third-party agent takes an action against a company's existing systems (Salesforce, Slack, procurement SaaS, etc.), Ringi's infrastructure hooks into the communication on its own — acting as a proxy (a middleman for the traffic) or an event listener — automatically runs parallel processing, and renders a Verdict.
 
-- タグライン：**"Agents don't need more tools.**  
-- **They need judgment."**  
-- 我々はAIに判断させる会社ではない。**判断をプロトコル化する会社**（Charter / Verdict / Receipt の3プリミティブ）  
-- wedge：buy-side（調達稟議）。ビジョン：**The reason why you Can FIRE Approving Managers.** （2028年、$15TのB2B支出がエージェント経由に）  
-- 3コンポーネント：会社の判断軸→Charter・ダッシュボード等のデータの構造化・ルールベースの判断軸（プロトコル）／Verdict API（MCP）／Accreditation Log
+- Tagline: **"Agents don't need more tools.**
+- **They need judgment."**
+- We are not a company that makes AI decide. We are a company that **turns judgment into a protocol** (the three primitives: Charter / Verdict / Receipt).
+- Wedge: buy-side (procurement approval / ringi). Vision: **The reason why you Can FIRE Approving Managers.** (By 2028, $15T of B2B spend will flow through agents.)
+- Three components: the company's decision criteria → structuring of data such as Charter and dashboards → a rule-based decision axis (the protocol) / Verdict API (MCP) / Accreditation Log
 
-## 2\. 確定事項
+## 2. Confirmed Decisions
 
-| \# | 決定 | 理由の要点 |
+| # | Decision | Key rationale |
 | :---- | :---- | :---- |
-| D1 | プロダクト名は **Ringi**。稟議は「廃止」でなく「API として再発明」とする | 名前と主張の整合 |
-| D2 | ポジショニングは **interface \+ protocol**。仕様公開、リファレンス実装＝リポジトリ AIエージェントを**導入している状態** | プラットフォーム勢（Microsoft AGT / assistents）は使いやすいAgentの提供、我々はAgentが読みやすい意思決定基盤の提供 |
-| D3 | LPは作らない。見た目担当は **Audit Console** | 審査対象は90秒動画。LPは加点にならない |
-| D4 | Notion等との**API連携をする**。（社内情報取得のため）静的エクスポートを charter context に注入 |  |
+| D1 | The product name is **Ringi**. Ringi is not "abolished" but "reinvented as an API" | Consistency between the name and the claim |
+| D2 | Positioning is **interface + protocol**. Spec published, reference implementation = repo, a state where **AI agents are already deployed** | The platform players (Microsoft AGT / assistants) provide easy-to-use Agents; we provide a decision-making foundation that Agents can easily read |
+| D3 | We don't build an LP. The "looks" are handled by the **Audit Console** | What gets judged is a 90-second video. An LP doesn't add points |
+| D4 | We **integrate via API** with Notion and the like (to fetch internal information). Inject static exports into the charter context | |
 
-## 3\. スコープ
+## 3. Scope
 
 **Must**
 
-- M1: Ringi 各ツールの作成  
-- M2: Audit Console にreceiptが結果と理由・ログを出力
+- M1: Build each of the Ringi tools
+- M2: The Audit Console outputs receipts with their result, reason, and log
 
-**Won't（今回はやらない）**
+**Won't (not this time)**
 
-- 認証／マルチテナント／LP
+- Authentication / multi-tenancy / LP
 
-## 4\. アーキテクチャと3スキーマ
+## 4. Architecture and the Three Schemas
 
-\[他社製・実行AIエージェント\]  
-       │  
-       │ ⚡️ 普通に購入ボタンを押す / 営業メールを送ろうとする  
-       ▼  
-  \[ 🚦 既存システムの手前で Ringi が自動インターセプト（勝手に検知） \]  
-       │  
-       ├───────────────────────┐  
-       ▼ 並列インプット 【ステップ1】   ▼ 並列インプット 【ステップ2】  
-┌───────────────────────┐     ┌───────────────────────┐  
-│ Salesforce/BIから     │     │ IR/議事録/ポリシーから │  
-│ ダッシュボード等の    │     │ 会社の判断軸          │  
-│ データを構造化・抽出   │     │ （Charter）を抽出     │  
-└──────────┬────────────┘     └──────────┬────────────┘  
-           │                             │  
-           └──────────────┬──────────────┘  
-                          │   
-                          ▼（自動でガッチャンコしてAIへ一括投入）  
-┌─────────────────────────────────────────────────────┐  
-│ 【ステップ3】 プロトコル（AI一括裁定・関所レイヤー）    │  
-│                                                     │  
-│  \- エージェントの「やろうとした行動」を解析。         │  
-│  \- 構造化データ ＋ Charter を含めたプロンプトで判定。 │  
-│  \- 出力：APPROVE（通す） / BLOCK（書き換え・遮断）   │  
-└─────────────────────────┬───────────────────────────┘  
-                          │  
-                          ▼ 💾   
-               \[改竄不能な Receipts.jsonl\] ──▶ Audit Console(M3)
+[Third-party / executing AI agent]
+       │
+       │ ⚡️ Just presses the buy button / tries to send a sales email
+       ▼
+  [ 🚦 Ringi auto-intercepts (detects on its own) right in front of the existing system ]
+       │
+       ├───────────────────────┐
+       ▼ Parallel input [Step 1]   ▼ Parallel input [Step 2]
+┌───────────────────────┐     ┌───────────────────────┐
+│ From Salesforce/BI,   │     │ From IR / minutes /   │
+│ structure and extract │     │ policy, extract the   │
+│ data such as          │     │ (Charter)             │
+│ dashboards            │     │                       │
+└──────────┬────────────┘     └──────────┬────────────┘
+           │                             │
+           └──────────────┬──────────────┘
+                          │
+                          ▼ (auto-merges everything and feeds it to the AI at once)
+┌─────────────────────────────────────────────────────┐
+│ [Step 3] Protocol (AI batch-adjudication / gatekeeper │
+│ layer)                                                │
+│                                                       │
+│  - Analyze the action the agent "tried to take."      │
+│  - Judge with a prompt that includes structured data  │
+│    + Charter.                                          │
+│  - Output: APPROVE (let it through) / BLOCK            │
+│    (rewrite / cut off)                                 │
+└─────────────────────────┬───────────────────────────┘
+                          │
+                          ▼ 💾
+               [tamper-proof Receipts.jsonl] ──▶ Audit Console (M3)
